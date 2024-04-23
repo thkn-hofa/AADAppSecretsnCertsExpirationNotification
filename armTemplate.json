@@ -3,7 +3,7 @@
     "contentVersion": "1.0.0.0",
     "parameters": {
         "logic_app_name": {
-            "defaultValue": "azure-application-notification",
+            "defaultValue": "logic-monitorappreg-prod-westeurope-001",
             "type": "string"
         },
         "office365-connection": {
@@ -79,6 +79,23 @@
                             },
                             "type": "ApiConnection"
                         },
+                        "Initialize_SendReport": {
+                            "runAfter": {
+                                "Initialize_daysTilExpiration": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "SendReport",
+                                        "type": "boolean",
+                                        "value": false
+                                    }
+                                ]
+                            }
+                        },
                         "Close_HTML_tags": {
                             "inputs": {
                                 "name": "html",
@@ -101,7 +118,7 @@
                                 "uri": "https://login.microsoftonline.com/@{body('Tenant-id')?['value']}/oauth2/v2.0/token"
                             },
                             "runAfter": {
-                                "Initialize_daysTilExpiration": [
+                                "Initialize_SendReport": [
                                     "Succeeded"
                                 ]
                             },
@@ -282,35 +299,53 @@
                             },
                             "type": "ParseJson"
                         },
-                        "Send_the_list_of_applications": {
-                            "inputs": {
-                                "body": {
-                                    "Body": "<p>@{variables('html')}</p>",
-                                    "Subject": "List of Secrets and Certificates near expiration",
-                                    "To": "youremail@company.com" //give the list of emails separated by semi-colon
-                                },
-                                "host": {
-                                    "connection": {
-                                        "name": "@parameters('$connections')['office365']['connectionId']"
-                                    }
-                                },
-                                "method": "post",
-                                "path": "/v2/Mail"
+                        "SendReport": {
+                            "actions": {
+								"Send_the_list_of_applications": {
+									"inputs": {
+										"body": {
+											"Body": "<p>@{variables('html')}</p>",
+											"Subject": "List of Secrets and Certificates near expiration",
+											"To": "youremail@company.com" //give the list of emails separated by semi-colon
+										},
+										"host": {
+											"connection": {
+												"name": "@parameters('$connections')['office365']['connectionId']"
+											}
+										},
+										"method": "post",
+										"path": "/v2/Mail"
+									},
+									"runtimeConfiguration": {
+										"secureData": {
+											"properties": [
+												"inputs",
+												"outputs"
+											]
+										}
+									},
+									"type": "ApiConnection"
+								}
                             },
                             "runAfter": {
                                 "Close_HTML_tags": [
                                     "Succeeded"
                                 ]
                             },
-                            "runtimeConfiguration": {
-                                "secureData": {
-                                    "properties": [
-                                        "inputs",
-                                        "outputs"
-                                    ]
-                                }
+                            "else": {
+                                "actions": {}
                             },
-                            "type": "ApiConnection"
+                            "expression": {
+                                "and": [
+                                    {
+                                        "equals": [
+                                            "@variables('SendReport')",
+                                            true
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
                         },
                         "Tenant-id": {
                             "inputs": {
@@ -478,6 +513,18 @@
                                                                 ]
                                                             },
                                                             "type": "Compose"
+                                                        },
+                                                        "Enable_SendReport_(PasswordCred)": {
+                                                            "runAfter": {
+                                                                "DifferentAsDays": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "SetVariable",
+                                                            "inputs": {
+                                                                "name": "SendReport",
+                                                                "value": true
+                                                            }
                                                         }
                                                     },
                                                     "expression": {
@@ -511,7 +558,7 @@
                                                                 "Append_Certificate_to_HTML_without_owner": {
                                                                     "inputs": {
                                                                         "name": "html",
-                                                                        "value": "<tr><td @{variables('styles').cellStyle}><a href=\"https://ms.portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Credentials/appId/@{variables('appId')}/isMSAApp/\">@{variables('appId')}</a></td><td @{variables('styles').cellStyle}>@{variables('displayName')}</td><td @{variables('styles').cellStyle}>@{items('For_each_KeyCred')?['keyId']}</td><td @{if(less(variables('daystilexpiration'), 15), variables('styles').redStyle, if(less(variables('daystilexpiration'), 30), variables('styles').yellowStyle, variables('styles').cellStyle))}>@{variables('daystilexpiration')} </td><td @{variables('styles').cellStyle}>Certificate</td><td @{variables('styles').cellStyle}>@{formatDateTime(item()?['endDateTime'], 'g')}</td><td @{variables('styles').cellStyle}>No Owner</td></tr>"
+                                                                        "value": "<tr><td @{variables('styles').cellStyle}><a href=\"https://ms.portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Credentials/appId/@{variables('appId')}/isMSAApp/\">@{variables('appId')}</a></td><td @{variables('styles').cellStyle}>@{variables('displayName')}</td><td @{variables('styles').cellStyle}>@{items('For_each_KeyCred')?['keyId']}</td><td @{if(less(variables('daystilexpiration'), 15), variables('styles').redStyle, if(less(variables('daystilexpiration'), 60), variables('styles').yellowStyle, variables('styles').cellStyle))}>@{variables('daystilexpiration')} </td><td @{variables('styles').cellStyle}>Certificate</td><td @{variables('styles').cellStyle}>@{formatDateTime(item()?['endDateTime'], 'g')}</td><td @{variables('styles').cellStyle}>No Owner</td></tr>"
                                                                     },
                                                                     "runAfter": {},
                                                                     "type": "AppendToStringVariable"
@@ -522,7 +569,7 @@
                                                                     "Append_Certificate_to_HTML_with_owner": {
                                                                         "inputs": {
                                                                             "name": "html",
-                                                                            "value": "<tr><td @{variables('styles').cellStyle}><a href=\"https://ms.portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Credentials/appId/@{variables('appId')}/isMSAApp/\">@{variables('appId')}</a></td><td @{variables('styles').cellStyle}>@{variables('displayName')}</td><td @{variables('styles').cellStyle}>@{items('For_each_KeyCred')?['keyId']}</td><td @{if(less(variables('daystilexpiration'), 15), variables('styles').redStyle, if(less(variables('daystilexpiration'), 30), variables('styles').yellowStyle, variables('styles').cellStyle))}>@{variables('daystilexpiration')} </td><td @{variables('styles').cellStyle}>Certificate</td><td @{variables('styles').cellStyle}>@{formatDateTime(item()?['endDateTime'], 'g')}</td><td @{variables('styles').cellStyle}><a href=\"mailto:@{body('Get_Certificate_Owner')?['value'][0]?['userPrincipalName']}\">@{body('Get_Certificate_Owner')?['value'][0]?['givenName']} @{body('Get_Certificate_Owner')?['value'][0]?['surname']}</a></td></tr>"
+                                                                            "value": "<tr><td @{variables('styles').cellStyle}><a href=\"https://ms.portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/Credentials/appId/@{variables('appId')}/isMSAApp/\">@{variables('appId')}</a></td><td @{variables('styles').cellStyle}>@{variables('displayName')}</td><td @{variables('styles').cellStyle}>@{items('For_each_KeyCred')?['keyId']}</td><td @{if(less(variables('daystilexpiration'), 15), variables('styles').redStyle, if(less(variables('daystilexpiration'), 60), variables('styles').yellowStyle, variables('styles').cellStyle))}>@{variables('daystilexpiration')} </td><td @{variables('styles').cellStyle}>Certificate</td><td @{variables('styles').cellStyle}>@{formatDateTime(item()?['endDateTime'], 'g')}</td><td @{variables('styles').cellStyle}><a href=\"mailto:@{body('Get_Certificate_Owner')?['value'][0]?['userPrincipalName']}\">@{body('Get_Certificate_Owner')?['value'][0]?['givenName']} @{body('Get_Certificate_Owner')?['value'][0]?['surname']}</a></td></tr>"
                                                                         },
                                                                         "runAfter": {},
                                                                         "type": "AppendToStringVariable"
@@ -617,7 +664,7 @@
                                                                 "uri": "https://graph.microsoft.com/v1.0/applications/@{items('Foreach_-_apps')?['id']}/owners"
                                                             },
                                                             "runAfter": {
-                                                                "Store_Days_till_expiration": [
+                                                                "Enable_SendReport_(KeyCred)": [
                                                                     "Succeeded"
                                                                 ]
                                                             },
@@ -643,6 +690,18 @@
                                                                 ]
                                                             },
                                                             "type": "SetVariable"
+                                                        },
+                                                        "Enable_SendReport_(KeyCred)": {
+                                                            "runAfter": {
+                                                                "Store_Days_till_expiration": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "SetVariable",
+                                                            "inputs": {
+                                                                "name": "SendReport",
+                                                                "value": true
+                                                            }
                                                         }
                                                     },
                                                     "expression": {
@@ -922,8 +981,10 @@
                                     },
                                     "runAfter": {
                                         "Foreach_-_apps": [
-                                            "Succeeded"
-                                        ]
+                                            "Succeeded",
+                                            "TimedOut",
+                                            "Failed",
+                                            "Skipped"                                        ]
                                     },
                                     "type": "SetVariable"
                                 }
@@ -952,12 +1013,40 @@
                     "triggers": {
                         "Recurrence": {
                             "recurrence": {
-                                "frequency": "Day",
-                                "interval": 1
+                                "frequency": "Week",
+                                "interval": 1,
+                                "schedule": {
+                                    "weekDays": [
+                                        "Monday"
+                                    ],
+                                    "hours": [
+                                        "8"
+                                    ],
+                                    "minutes": [
+                                        30
+                                    ]
+                                },
+                                "timeZone": "GMT Standard Time"
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Week",
+                                "interval": 1,
+                                "schedule": {
+                                    "weekDays": [
+                                        "Monday"
+                                    ],
+                                    "hours": [
+                                        "8"
+                                    ],
+                                    "minutes": [
+                                        30
+                                    ]
+                                },
+                                "timeZone": "GMT Standard Time"
                             },
                             "type": "Recurrence"
                         }
-                    }
+                    }								 
                 },
                 "parameters": {
                     "$connections": {
